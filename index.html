@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mapa de Caracas con Banderines Personalizados</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v8.2.0/ol.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+
+        .ol-popup {
+            position: absolute;
+            background-color: white;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #cccccc;
+            bottom: 12px;
+            left: -50px;
+            min-width: 280px;
+            font-size: 14px;
+        }
+        .ol-popup:after, .ol-popup:before {
+            top: 100%;
+            border: solid transparent;
+            content: " ";
+            height: 0;
+            width: 0;
+            position: absolute;
+            pointer-events: none;
+        }
+        .ol-popup:after {
+            border-top-color: white;
+            border-width: 10px;
+            left: 48px;
+            margin-left: -10px;
+        }
+        .ol-popup:before {
+            border-top-color: #cccccc;
+            border-width: 11px;
+            left: 48px;
+            margin-left: -11px;
+        }
+        .ol-popup-closer {
+            text-decoration: none;
+            position: absolute;
+            top: 2px;
+            right: 8px;
+        }
+        .ol-popup-closer:after {
+            content: "✖";
+        }
+
+        /* Estilos de la leyenda */
+        #legend {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            z-index: 1000;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            margin-right: 8px;
+            border: 1px solid #333;
+        }
+
+        /* Estilos para el campo de texto de descripción */
+        .description-input-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2000;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: none; /* Oculto por defecto */
+        }
+        .description-input-container input,
+        .description-input-container textarea,
+        .description-input-container button {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+    
+    <div id="popup" class="ol-popup">
+        <a href="#" id="popup-closer" class="ol-popup-closer"></a>
+        <div id="popup-content"></div>
+    </div>
+
+    <div id="description-modal" class="description-input-container">
+        <h4>Añadir Banderín</h4>
+        <input type="text" id="title-input" placeholder="Título del Lugar">
+        <input type="text" id="price-input" placeholder="Precio (Ej: $25)">
+        <textarea id="description-input" rows="3" placeholder="Descripción del Lugar"></textarea>
+        <button id="add-marker-btn">Agregar Banderín</button>
+    </div>
+
+    <div id="legend">
+        <b>Leyenda de Lugares</b>
+        <div class="legend-item"><div class="legend-color" style="background-color: #4285F4;"></div><span>Punto de Interés</span></div>
+        <div class="legend-item"><div class="legend-color" style="background-color: #FF0000;"></div><span>Edificio</span></div>
+        <div class="legend-item"><div class="legend-color" style="background-color: #34A853;"></div><span>Parque / Naturaleza</span></div>
+        <div class="legend-item"><div class="legend-color" style="background-color: #FBBC05;"></div><span>Tienda / Comercio</span></div>
+        <div class="legend-item"><div class="legend-color" style="background-color: #9E9E9E;"></div><span>Otro</span></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/ol@v8.2.0/dist/ol.js"></script>
+    <script>
+        const map = new ol.Map({
+            target: 'map',
+            layers: [
+                new ol.layer.Tile({
+                    source: new ol.source.OSM()
+                })
+            ],
+            view: new ol.View({
+                // Coordenadas de Caracas, Venezuela
+                center: ol.proj.fromLonLat([-66.9036, 10.4806]),
+                zoom: 12
+            })
+        });
+
+        const popup = new ol.Overlay({
+            element: document.getElementById('popup'),
+            autoPan: {
+                animation: {
+                    duration: 250,
+                },
+            },
+        });
+        map.addOverlay(popup);
+
+        const popupContent = document.getElementById('popup-content');
+        const popupCloser = document.getElementById('popup-closer');
+        popupCloser.onclick = function () {
+            popup.setPosition(undefined);
+            popupCloser.blur();
+            return false;
+        };
+
+        const vectorSource = new ol.source.Vector();
+        const vectorLayer = new ol.layer.Vector({
+            source: vectorSource,
+        });
+        map.addLayer(vectorLayer);
+
+        const placeColors = {
+            amenity: '#4285F4',
+            building: '#FF0000',
+            park: '#34A853',
+            shop: '#FBBC05',
+            other: '#9E9E9E',
+        };
+
+        let mousePosition = null;
+
+        // Escucha el movimiento del mouse sobre el mapa
+        map.on('pointermove', function (evt) {
+            mousePosition = evt.coordinate;
+        });
+
+        // Escucha la pulsación de la tecla espacio
+        document.addEventListener('keydown', function(event) {
+            if (event.code === 'Space' && mousePosition) {
+                event.preventDefault(); // Evita el scroll de la página con la barra espaciadora
+                
+                // Muestra la ventana modal para la descripción
+                const modal = document.getElementById('description-modal');
+                modal.style.display = 'block';
+
+                // Guarda la coordenada para su uso posterior
+                modal.dataset.coordinate = mousePosition;
+            }
+        });
+
+        // Escucha el clic en el botón "Agregar Banderín"
+        document.getElementById('add-marker-btn').addEventListener('click', function() {
+            const modal = document.getElementById('description-modal');
+            const coordinate = modal.dataset.coordinate.split(',').map(Number);
+            
+            const title = document.getElementById('title-input').value || 'Sin Título';
+            const price = document.getElementById('price-input').value || 'N/A';
+            const description = document.getElementById('description-input').value || 'Sin descripción.';
+
+            // Crea un nuevo marcador con los datos ingresados
+            const marker = new ol.Feature({
+                geometry: new ol.geom.Point(coordinate),
+                title: title,
+                description: description,
+                price: price,
+                placeType: 'other', // Tipo genérico para banderines manuales
+            });
+
+            const markerStyle = new ol.style.Style({
+                image: new ol.style.Circle({
+                    radius: 7,
+                    fill: new ol.style.Fill({ color: placeColors.other }),
+                    stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
+                })
+            });
+            marker.setStyle(markerStyle);
+            vectorSource.addFeature(marker);
+
+            // Resetea y oculta el modal
+            document.getElementById('title-input').value = '';
+            document.getElementById('price-input').value = '';
+            document.getElementById('description-input').value = '';
+            modal.style.display = 'none';
+        });
+
+        // Escucha clics en los marcadores para mostrar el popup
+        map.on('click', function(evt) {
+            const feature = map.forEachFeatureAtPixel(evt.pixel, function(feature) {
+                return feature;
+            });
+
+            if (feature) {
+                const coordinates = feature.getGeometry().getCoordinates();
+                const title = feature.get('title');
+                const description = feature.get('description');
+                const price = feature.get('price');
+                const placeType = feature.get('placeType');
+
+                const content = `
+                    <b>Título:</b> ${title}<br>
+                    <b>Descripción:</b> ${description}<br>
+                    <b>Precio:</b> ${price}
+                `;
+
+                popupContent.innerHTML = content;
+                popup.setPosition(coordinates);
+            } else {
+                popup.setPosition(undefined);
+            }
+        });
+    </script>
+</body>
+</html>
